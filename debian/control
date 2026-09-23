@@ -1,0 +1,17 @@
+Source: bmatrix
+Section: graphics
+Priority: optional
+Maintainer: bmatrix contributors <maintainers@bmatrix.invalid>
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.20), g++, libpng-dev, libncurses-dev, python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/matthewbohl/bmatrix
+Vcs-Git: https://github.com/matthewbohl/bmatrix.git
+Vcs-Browser: https://github.com/matthewbohl/bmatrix
+
+Package: bmatrix
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: animated ASCII image renderer for terminals
+ Displays images using stable ASCII glyphs with Matrix green, monochrome,
+ and full-color palettes, a downward reveal, and terminal color fallbacks.

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+bmatrix --version
+for mode in green mono full; do
+    bmatrix --demo --mode "$mode" --size 40x12 --output plain > "$AUTOPKGTEST_TMP/$mode.txt"
+    test -s "$AUTOPKGTEST_TMP/$mode.txt"
+done
+python3 tests/terminal_test.py /usr/bin/bmatrix

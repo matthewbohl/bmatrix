@@ -1,0 +1,72 @@
+.TH BMATRIX 1 "September 2026" "bmatrix 0.1.0" "User Commands"
+.SH NAME
+bmatrix \- animate concealed images through a Matrix-style ASCII field
+.SH SYNOPSIS
+.B bmatrix
+.RI [ options ] " image.png"
+.br
+.B bmatrix --demo
+.RI [ options ]
+.SH DESCRIPTION
+Displays PNG or binary PPM (P6) images through a continuously falling field of
+printable ASCII glyphs. Classic Matrix green is the default. Image aspect ratio
+is preserved, but its detail is intentionally carried indirectly by the density
+and brightness of the field.
+The default field uses CMatrix's normal printable character range and every-second
+column spacing; a dim image layer remains beneath the moving streams.
+No terminal graphics protocol or special font is required.
+.SH OPTIONS
+.TP
+.B --demo
+Use a generated demonstration image.
+.TP
+.BI --mode " green|mono|full"
+Select the artistic palette, independently of terminal color capability.
+.TP
+.BI --color " auto|none|16|256|truecolor"
+Override terminal color capability detection.
+.TP
+.BI --size " COLSxROWS"
+Set the output dimensions.
+.TP
+.BI --frames " N"
+Exit after a bounded number of frames.
+.TP
+.BI --fps " N"
+Set the animation frame rate.
+.TP
+.BI --duration " SECONDS"
+Set the legacy downward reveal duration.
+.TP
+.BI --seed " N"
+Set the deterministic effect seed.
+.TP
+.BI --effect " matrix|flow|none"
+Select a perpetual Matrix field, the legacy downward reveal, or a static image.
+Matrix is the default.
+.TP
+.BI --image-strength " N"
+Set the concealed image strength from 0 to 1. The default is 0.7.
+.TP
+.BI --progress " FRACTION"
+Render a deterministic legacy reveal position between 0 and 1.
+.TP
+.BI --time " SECONDS"
+Render a deterministic Matrix-field snapshot at the given time.
+.TP
+.BI --output " plain|json"
+Write a static frame for inspection or testing without terminal control codes.
+.TP
+.B --help
+Show all supported options.
+.TP
+.B --version
+Print the program version.
+.SH CONTROLS
+Press q to quit. Space pauses or resumes animation. Press r to replay.
+.SH NOTES
+Terminal dimensions, decoded images, and memory use are bounded.
+Capability overrides are intended for terminals whose environment does not
+accurately describe color support. Some terminals can only display a reduced palette.
+.SH EXIT STATUS
+Zero indicates success. A nonzero status indicates invalid arguments or an error.

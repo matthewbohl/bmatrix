@@ -1,0 +1,112 @@
+name: Build and package checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_readiness:
+        description: "Run strict public-distribution metadata audit (expected to fail until metadata is finalized)"
+        type: boolean
+        default: false
+      release_evidence:
+        description: "External evidence JSON for the exact source archive; missing evidence blocks readiness"
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: g++
+            sanitizer: OFF
+          - os: ubuntu-latest
+            compiler: clang++
+            sanitizer: ON
+          - os: macos-latest
+            compiler: clang++
+            sanitizer: OFF
+          - os: macos-latest
+            compiler: clang++
+            sanitizer: ON
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpng-dev libncurses-dev
+      - name: macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install libpng ncurses
+      - name: Build and test
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBMATRIX_SANITIZERS=${{ matrix.sanitizer }}
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Source archive, fresh build, staged install
+        run: |
+          python3 scripts/source-archive.py "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz"
+          mkdir "$RUNNER_TEMP/source"
+          tar -xzf "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz" -C "$RUNNER_TEMP/source"
+          cmake -S "$RUNNER_TEMP/source/bmatrix-0.1.0" -B "$RUNNER_TEMP/archive-build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build "$RUNNER_TEMP/archive-build" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/archive-build" --output-on-failure
+          DESTDIR="$RUNNER_TEMP/stage" cmake --install "$RUNNER_TEMP/archive-build"
+          "$RUNNER_TEMP/stage/usr/bin/bmatrix" --demo --output plain
+          test -f "$RUNNER_TEMP/stage/usr/share/man/man1/bmatrix.1"
+  debian:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+      options: --privileged
+    steps:
+      - name: Build and QA dependencies
+        run: |
+          apt-get update
+          apt-get install -y git ca-certificates build-essential debhelper cmake libpng-dev libncurses-dev python3 lintian autopkgtest piuparts util-linux
+      - uses: actions/checkout@v4
+      - name: Offline package build
+        run: unshare --net dpkg-buildpackage -us -uc -b
+      - name: Debian package lint
+        run: lintian --allow-root --fail-on error ../bmatrix_*.changes
+      - name: Installed package tests
+        run: autopkgtest ../bmatrix_*.deb . -- null
+      - name: Clean installation and removal
+        run: piuparts -d stable ../bmatrix_*.deb
+  homebrew:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create local development tap
+        run: |
+          python3 scripts/source-archive.py "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz"
+          brew tap-new bmatrix/local
+          python3 scripts/homebrew-formula.py "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz" > "$(brew --repository bmatrix/local)/Formula/bmatrix.rb"
+      - name: Formula style
+        run: brew style bmatrix/local/bmatrix
+      - name: Build and formula test
+        run: |
+          brew install --build-from-source bmatrix/local/bmatrix
+          brew test bmatrix/local/bmatrix
+      - name: Strict distribution audit (blocks readiness until real release metadata exists)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_readiness
+        run: |
+          brew style bmatrix/local/bmatrix
+          brew audit --strict bmatrix/local/bmatrix
+  release-readiness:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_readiness
+    needs: [build, debian, homebrew]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce release evidence
+        env:
+          BMATRIX_RELEASE_EVIDENCE: ${{ inputs.release_evidence }}
+        run: |
+          python3 scripts/source-archive.py "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz"
+          python3 scripts/release-check.py "$RUNNER_TEMP/bmatrix-0.1.0.tar.gz" --evidence-env BMATRIX_RELEASE_EVIDENCE

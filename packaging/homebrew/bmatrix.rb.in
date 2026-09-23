@@ -1,0 +1,28 @@
+# Local development formula. Set an immutable public release URL before publishing.
+class Bmatrix < Formula
+  desc "Animated ASCII image renderer for terminals"
+  homepage "https://github.com/matthewbohl/bmatrix"
+  url "@SOURCE_URL@"
+  sha256 "@SOURCE_SHA256@"
+  license "MIT"
+
+  depends_on "cmake" => :build
+  depends_on "libpng"
+  depends_on "ncurses"
+
+  def install
+    system "cmake", "-S", ".", "-B", "build", *std_cmake_args,
+           "-DBUILD_TESTING=OFF"
+    system "cmake", "--build", "build"
+    system "cmake", "--install", "build"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/bmatrix --version")
+    %w[green mono full].each do |mode|
+      output = shell_output("#{bin}/bmatrix --demo --mode #{mode} --size 40x12 --output plain")
+      assert_equal 12, output.lines.count
+      assert output.lines.all? { |line| line.chomp.length == 40 }
+    end
+  end
+end

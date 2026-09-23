@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {"name": "dev", "generator": "Unix Makefiles", "binaryDir": "${sourceDir}/build", "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"}},
+    {"name": "release", "inherits": "dev", "binaryDir": "${sourceDir}/build-release", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"}},
+    {"name": "sanitizers", "inherits": "dev", "binaryDir": "${sourceDir}/build-sanitizers", "cacheVariables": {"BMATRIX_SANITIZERS": "ON"}}
+  ],
+  "buildPresets": [{"name": "dev", "configurePreset": "dev"}, {"name": "release", "configurePreset": "release"}, {"name": "sanitizers", "configurePreset": "sanitizers"}],
+  "testPresets": [{"name": "dev", "configurePreset": "dev", "output": {"outputOnFailure": true}}, {"name": "release", "configurePreset": "release", "output": {"outputOnFailure": true}}, {"name": "sanitizers", "configurePreset": "sanitizers", "output": {"outputOnFailure": true}}]
+}

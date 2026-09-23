@@ -1,0 +1,11 @@
+/build*/
+/.local/
+/artifacts/
+/.venv/
+__pycache__/
+*.deb
+*.buildinfo
+*.changes
+*.dsc
+*.tar.*
+/.DS_Store

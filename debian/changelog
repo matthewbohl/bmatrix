@@ -1,0 +1,5 @@
+bmatrix (0.1.0-1) unstable; urgency=medium
+
+  * Initial local development package; not submitted to a distribution.
+
+ -- bmatrix contributors <maintainers@bmatrix.invalid>  Tue, 22 Sep 2026 12:00:00 +0000
