@@ -1,6 +1,7 @@
 #pragma once
 #include "bmatrix/core.hpp"
 #include <string>
+#include <vector>
 
 namespace bmatrix {
 enum class Effect { matrix, flow, still };
@@ -13,5 +14,6 @@ struct SessionOptions {
     double duration{3};
     unsigned long frames{0};
 };
-int run_terminal(const Image& image, const SessionOptions& options);
+// An empty path selects the built-in demo. Only the current image is decoded.
+int run_terminal(const std::vector<std::filesystem::path>& paths, const SessionOptions& options);
 } // namespace bmatrix

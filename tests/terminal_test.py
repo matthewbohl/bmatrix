@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 import termios
+import tempfile
 import time
 import unittest
 
@@ -24,14 +25,15 @@ def attributes(fd):
 
 
 class Session:
-    def __init__(self, *args, term="xterm-256color"):
+    def __init__(self, *args, term="xterm-256color", demo=True):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         self.before = attributes(self.slave)
         env = dict(os.environ, TERM=term)
         env.pop("COLORTERM", None)
         env.pop("NO_COLOR", None)
-        self.proc = subprocess.Popen([BINARY, "--demo", *args], stdin=self.slave,
+        command = [BINARY, *( ["--demo"] if demo else [] ), *args]
+        self.proc = subprocess.Popen(command, stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env)
         self.output = b""
 
@@ -98,8 +100,53 @@ class TerminalTests(unittest.TestCase):
         self.assertGreater(session.output.count(b"\x1b["), 4)
         self.restored(session)
 
+    def test_gallery_next_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for index, color in enumerate((b"\xff\x00\x00", b"\x00\x00\xff"), 1):
+                with open(os.path.join(directory, f"{index:02}.ppm"), "wb") as image:
+                    image.write(b"P6\n1 1\n255\n" + color)
+            session = self.session("--gallery", directory, "--effect", "none", "--mode", "full",
+                                   "--color", "truecolor", demo=False)
+            session.drain(.15)
+            red = b"\x1b[38;2;255;0;0m"
+            blue = b"\x1b[38;2;0;0;255m"
+            self.assertIn(red, session.output)
+            self.assertNotIn(blue, session.output)
+            os.write(session.master, b" ")
+            session.drain(.1)
+            before = len(session.output)
+            os.write(session.master, b"n")
+            session.drain(.15)
+            self.assertIn(blue, session.output[before:])
+            self.assertNotIn(red, session.output[before:])
+            before = len(session.output)
+            os.write(session.master, b"N")
+            session.drain(.15)
+            self.assertIn(red, session.output[before:])
+            self.assertNotIn(blue, session.output[before:])
+            before = len(session.output)
+            session.drain(.1)
+            self.assertEqual(before, len(session.output), "gallery advance preserves pause")
+            os.write(session.master, b"q")
+            self.assertEqual(session.finish(), 0)
+            self.restored(session)
+
+    def test_gallery_loads_only_current_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "01.ppm"), "wb") as image:
+                image.write(b"P6\n1 1\n255\n\xff\x00\x00")
+            with open(os.path.join(directory, "02.ppm"), "wb") as image:
+                image.write(b"invalid image")
+            session = self.session("--gallery", directory, "--effect", "none", demo=False)
+            session.drain(.15)
+            self.assertIsNone(session.proc.poll(), "later gallery files are not decoded eagerly")
+            os.write(session.master, b"n")
+            self.assertNotEqual(session.finish(), 0)
+            self.restored(session)
+            self.assertIn(b"bmatrix:", session.output)
+
     def test_interrupt(self):
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGQUIT):
             with self.subTest(sig=sig):
                 session = self.session()
                 session.drain(.1)
@@ -134,6 +181,33 @@ class TerminalTests(unittest.TestCase):
         session.proc.send_signal(signal.SIGCONT)
         session.drain(.15)
         self.assertFalse(termios.tcgetattr(session.slave)[3] & termios.ECHO)
+        os.write(session.master, b"q")
+        self.assertEqual(session.finish(), 0)
+        self.restored(session)
+
+    def test_paused_resize_and_resume_repaint(self):
+        session = self.session("--effect", "none", "--mode", "full", "--color", "truecolor")
+        session.drain(.15)
+        os.write(session.master, b" ")
+        session.drain(.1)
+        fcntl.ioctl(session.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
+        before = len(session.output)
+        session.proc.send_signal(signal.SIGWINCH)
+        session.drain(.15)
+        self.assertIn(b"38;2;", session.output[before:], "paused resize repaints visible cells")
+        before = len(session.output)
+        session.drain(.1)
+        self.assertEqual(before, len(session.output), "resize does not unpause")
+        session.proc.send_signal(signal.SIGTSTP)
+        session.drain(.15)
+        self.assertEqual(attributes(session.slave), session.before)
+        before = len(session.output)
+        session.proc.send_signal(signal.SIGCONT)
+        session.drain(.15)
+        self.assertIn(b"38;2;", session.output[before:], "paused resume repaints visible cells")
+        before = len(session.output)
+        session.drain(.1)
+        self.assertEqual(before, len(session.output), "resume does not unpause")
         os.write(session.master, b"q")
         self.assertEqual(session.finish(), 0)
         self.restored(session)

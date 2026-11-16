@@ -2,6 +2,8 @@
 #include "terminal.hpp"
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -30,7 +32,7 @@ unsigned long integer(const std::string& value, unsigned long high) {
 int main(int argc, char** argv) {
     try {
         bmatrix::SessionOptions options;
-        std::string path, output = isatty(STDOUT_FILENO) ? "terminal" : "plain";
+        std::string path, gallery_path, output = isatty(STDOUT_FILENO) ? "terminal" : "plain";
         double progress = 1;
         double time = 0;
         bool demo = false;
@@ -52,12 +54,13 @@ int main(int argc, char** argv) {
                     "  --seed N                  Deterministic seed\n"
                     "  --cell-aspect N           Cell width/height; default .5\n"
                     "  --image-strength N        Concealed image strength 0..1; default .7\n"
+                    "  --gallery DIRECTORY       Rotate supported images with n/N\n"
                     "  --effect matrix|flow|none Matrix rain is the default\n"
                     "  --output terminal|plain|json\n"
                     "  --progress N              Snapshot reveal progress 0..1\n"
                     "  --time SECONDS            Deterministic matrix snapshot time\n"
                     "  --version                 Print version\n"
-                    "Keys: q quit, space pause, r replay.\n";
+                    "Keys: q quit, space pause, r replay, n next gallery image.\n";
                 return 0;
             } else if (arg == "--version") { std::cout << "bmatrix " BMATRIX_VERSION "\n"; return 0; }
             else if (arg == "--demo") demo = true;
@@ -86,6 +89,7 @@ int main(int argc, char** argv) {
             } else if (arg == "--seed") options.render.seed = static_cast<std::uint32_t>(integer(value(), std::numeric_limits<std::uint32_t>::max()));
             else if (arg == "--cell-aspect") options.render.cell_aspect = number(value(), .2, 2);
             else if (arg == "--image-strength") options.render.image_strength = number(value(), 0, 1);
+            else if (arg == "--gallery") gallery_path = value();
             else if (arg == "--effect") {
                 const auto effect = value();
                 if (effect == "matrix") options.effect = bmatrix::Effect::matrix;
@@ -103,12 +107,32 @@ int main(int argc, char** argv) {
                 path = arg;
             }
         }
-        if (demo && !path.empty()) throw std::runtime_error("--demo cannot be combined with IMAGE");
-        const auto image = path.empty() ? bmatrix::demo_image() : bmatrix::load_image(path);
+        if (demo && (!path.empty() || !gallery_path.empty())) throw std::runtime_error("--demo cannot be combined with IMAGE or --gallery");
+        if (!gallery_path.empty() && !path.empty()) throw std::runtime_error("IMAGE cannot be combined with --gallery");
+        std::vector<std::filesystem::path> paths;
+        if (!gallery_path.empty()) {
+            if (output != "terminal") throw std::runtime_error("--gallery requires terminal output");
+            const std::filesystem::path directory{gallery_path};
+            if (!std::filesystem::is_directory(directory)) throw std::runtime_error("gallery is not a directory: " + gallery_path);
+            for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+                if (!entry.is_regular_file()) continue;
+                const auto extension = entry.path().extension().string();
+                if (extension == ".png" || extension == ".ppm") paths.push_back(entry.path());
+            }
+            std::sort(paths.begin(), paths.end());
+            if (paths.empty()) throw std::runtime_error("gallery has no PNG or PPM images");
+        } else {
+            paths.emplace_back(path);
+        }
         if (output == "terminal") {
             if (!isatty(STDOUT_FILENO) || !isatty(STDIN_FILENO)) throw std::runtime_error("terminal output requires a terminal on stdin and stdout");
-            return bmatrix::run_terminal(image, options);
+            return bmatrix::run_terminal(paths, options);
         }
+        if (options.effect == bmatrix::Effect::matrix) {
+            options.render.image_time = time;
+            options.render.image_glitch = true;
+        }
+        const auto image = path.empty() ? bmatrix::demo_image() : bmatrix::load_image(path);
         auto frame = bmatrix::render_image(image, options.render);
         if (options.effect == bmatrix::Effect::matrix) frame = bmatrix::matrix_rain(frame, time, options.render.seed, options.render.palette, options.render.image_strength);
         else if (options.effect == bmatrix::Effect::flow) frame = bmatrix::flow_down(frame, progress, options.render.seed);

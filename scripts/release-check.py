@@ -4,9 +4,46 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sys
+import tarfile
+
+
+def archived_metadata(archive):
+    """Read bounded regular metadata files without extracting an untrusted tar."""
+    result = {}
+    roots = set()
+    with tarfile.open(archive, "r:gz") as source:
+        for member in source:
+            parts = PurePosixPath(member.name).parts
+            if len(parts) != 3 or parts[1] != "debian" or parts[2] not in ("control", "changelog"):
+                continue
+            name = parts[2]
+            if name in result or not member.isfile() or member.size > 128 * 1024:
+                raise ValueError(f"invalid or duplicate archived debian/{name}")
+            roots.add(parts[0])
+            with source.extractfile(member) as content:
+                result[name] = content.read().decode("utf-8")
+    if set(result) != {"control", "changelog"} or len(roots) != 1:
+        raise ValueError("archive must contain debian/control and debian/changelog under one source directory")
+    return result
+
+
+def control_field(control, name):
+    # Release identity comes from the source stanza, not a binary-package stanza.
+    source_stanza = re.split(r"\n\s*\n", control, maxsplit=1)[0]
+    values = re.findall(rf"^{name}:\s*(.+)$", source_stanza, re.MULTILINE)
+    if len(values) != 1:
+        raise ValueError(f"archived debian/control requires one {name} field")
+    return values[0].strip()
+
+
+def address(value):
+    match = re.fullmatch(r"[^<>]+<([^<>]+)>", value)
+    if not match:
+        raise ValueError("archived Debian maintainer must include an email address")
+    return match[1].strip()
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("archive", type=Path)
@@ -30,6 +67,14 @@ try:
         marker in maintainer.lower() for marker in ("example.", ".invalid", "placeholder")
     ):
         errors.append("a real maintainer email is required")
+    metadata = archived_metadata(args.archive)
+    if control_field(metadata["control"], "Homepage") != homepage:
+        errors.append("archived debian/control Homepage does not match release evidence")
+    if address(control_field(metadata["control"], "Maintainer")) != maintainer:
+        errors.append("archived debian/control Maintainer does not match release evidence")
+    trailer = re.search(r"^ -- (.+?)  \S.*$", metadata["changelog"], re.MULTILINE)
+    if not trailer or address(trailer[1]) != maintainer:
+        errors.append("archived debian/changelog maintainer does not match release evidence")
     checks = evidence.get("checks", {})
     required = ("linux_gcc", "linux_clang", "macos_arm64", "macos_x86_64",
                 "asan_ubsan", "source_archive_install", "debian_offline_build",
@@ -50,7 +95,7 @@ try:
                 errors.append(f"missing human still-image and animation approval: {mode} {size}")
     if errors:
         raise ValueError("\n".join(errors))
-except (OSError, KeyError, ValueError, TypeError, AttributeError) as error:
+except (OSError, KeyError, ValueError, TypeError, AttributeError, UnicodeError, tarfile.TarError) as error:
     print(f"RELEASE BLOCKED: {error}", file=sys.stderr)
     sys.exit(1)
 print(f"Release evidence accepted for {archive_hash}; publishing still requires authorization.")

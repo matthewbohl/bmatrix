@@ -51,11 +51,27 @@ bmatrix photo.png --effect none            # static image
 bmatrix photo.png --effect flow --duration 4 # legacy reveal experiment
 bmatrix photo.png --size 160x54 --output plain --time 2.5
 bmatrix photo.png --size 160x54 --output json --time 2.5
+scripts/run-gallery.sh ./build/bmatrix --size 160x54 # press n for next fixture
 ```
 
-Keys: `q` quits, Space pauses, `r` replays. Ctrl-C exits cleanly. Ctrl-Z restores
+## Visual gallery
+
+`scripts/generate-test-images.py artifacts/test-gallery` produces 15 deterministic,
+redistributable PPM fixtures covering wide, tall, square, high-contrast, dark, color,
+edge-detail, and noisy inputs. `scripts/run-gallery.sh ./build/bmatrix` regenerates
+them and launches gallery mode. Press `n`/`N` to advance, `r` to restart the current
+image, and `q` to quit. Only the current image is decoded, so a gallery does not
+keep every source image in memory. Navigation wraps after the last image and works
+while paused.
+
+Keys: `q` quits, Space pauses, `r` replays. Ctrl-C and Ctrl-\\ exit cleanly. Ctrl-Z restores
 the terminal before suspension; `fg` resumes. Resizing refits the image while
 preserving the current field phase.
+
+For local visual checks, `scripts/visual-preview.py` requires Pillow and a monospace
+font. Palette stills use a settled frame at 10 seconds; `--seconds 6 --fps 30`
+captures startup and the recurring field in all three palettes. These previews
+support review but do not replace terminal visual approval before a release.
 
 Artistic `--mode` and terminal `--color` are independent. Auto uses terminfo's
 palette plus `COLORTERM=truecolor`/`24bit` for RGB; `NO_COLOR` disables automatic

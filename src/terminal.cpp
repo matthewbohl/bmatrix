@@ -49,8 +49,8 @@ std::string cap(const char* name, long a = -1, long b = -1) {
 class Terminal {
     termios saved{};
     bool active = false;
-    std::array<struct sigaction, 5> previous{};
-    const std::array<int, 5> signals{SIGINT, SIGTERM, SIGWINCH, SIGTSTP, SIGCONT};
+    std::array<struct sigaction, 6> previous{};
+    const std::array<int, 6> signals{SIGINT, SIGTERM, SIGQUIT, SIGWINCH, SIGTSTP, SIGCONT};
 public:
     int colors = 0;
     bool rgb = false;
@@ -138,9 +138,15 @@ public:
     }
 };
 }
-int run_terminal(const Image& image, const SessionOptions& options) {
+int run_terminal(const std::vector<std::filesystem::path>& paths, const SessionOptions& options) {
+    if (paths.empty()) throw std::invalid_argument("gallery must contain at least one image");
+    const auto load = [&paths](std::size_t index) {
+        return paths[index].empty() ? demo_image() : load_image(paths[index]);
+    };
+    Image image = load(0);
     Terminal terminal(options.color);
     auto render = options.render;
+    std::size_t image_index = 0;
     auto size = [&]() {
         winsize window{};
         if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) == 0 && window.ws_col && window.ws_row) {
@@ -157,6 +163,7 @@ int run_terminal(const Image& image, const SessionOptions& options) {
     auto deadline = Clock::now(), last_time = deadline;
     double elapsed = 0;
     bool paused = false;
+    bool repaint = false;
     unsigned long count = 0;
     while (!stopped) {
         if (suspended) {
@@ -171,11 +178,18 @@ int run_terminal(const Image& image, const SessionOptions& options) {
         if (resized) {
             resized = 0; size(); target = render_image(image, render);
             previous_frame = {}; write_all(cap("clear"));
+            repaint = true;
         }
         auto now = Clock::now();
         if (!paused) elapsed += std::chrono::duration<double>(now - last_time).count();
         last_time = now;
-        if (!paused && now >= deadline) {
+        if ((!paused && now >= deadline) || repaint) {
+            repaint = false;
+            if (options.effect == Effect::matrix) {
+                render.image_time = elapsed;
+                render.image_glitch = true;
+                target = render_image(image, render);
+            }
             const auto frame = options.effect == Effect::matrix ? matrix_rain(target, elapsed, render.seed, render.palette, render.image_strength) :
                 options.effect == Effect::flow ? flow_down(target, std::min(1.0, elapsed / options.duration), render.seed) : target;
             terminal.paint(frame, previous_frame); previous_frame = frame;
@@ -194,7 +208,20 @@ int run_terminal(const Image& image, const SessionOptions& options) {
             for (ssize_t i = 0; i < length; ++i) {
                 if (keys[i] == 'q' || keys[i] == 'Q') stopped = 1;
                 if (keys[i] == ' ') { paused = !paused; last_time = deadline = Clock::now(); }
-                if (keys[i] == 'r') { elapsed = 0; previous_frame = {}; }
+                if (keys[i] == 'r') { elapsed = 0; previous_frame = {}; repaint = true; }
+                if (keys[i] == 'n' || keys[i] == 'N') {
+                    image_index = (image_index + 1) % paths.size();
+                    // Release the old pixels before decoding the next file;
+                    // gallery memory stays bounded by a single image/decode.
+                    image = {};
+                    image = load(image_index);
+                    elapsed = 0; previous_frame = {};
+                    render.image_time = 0;
+                    target = render_image(image, render);
+                    write_all(cap("clear"));
+                    last_time = deadline = Clock::now();
+                    repaint = true;
+                }
             }
         }
     }

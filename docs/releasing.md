@@ -63,7 +63,10 @@ self-referential archive hash. Evidence is an accountable review record, not a
 substitute for executing the checks or independently verifying attached logs.
 
 The JSON must contain `source_sha256`, an actual HTTPS `homepage`, and an actual
-`maintainer_email`. `checks` maps each required name below to an object with
+`maintainer_email`. The checker reads the source archive itself and requires its
+Debian source-stanza `Homepage` and `Maintainer`, plus the latest changelog trailer's
+maintainer, to match that evidence. Updating the JSON alone cannot finalize the
+development package's placeholder metadata. `checks` maps each required name below to an object with
 `status: "passed"` and a nonempty `evidence` log/artifact reference:
 
 `linux_gcc`, `linux_clang`, `macos_arm64`, `macos_x86_64`, `asan_ubsan`,

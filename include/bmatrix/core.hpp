@@ -31,6 +31,9 @@ struct RenderOptions {
     Palette palette{Palette::green};
     std::uint32_t seed{1};
     double image_strength{0.70};
+    // Pure image-space motion inputs. They are set only for the Matrix effect.
+    double image_time{0};
+    bool image_glitch{false};
 };
 Image load_image(const std::filesystem::path& path);
 Image demo_image();

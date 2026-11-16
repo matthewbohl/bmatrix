@@ -88,12 +88,41 @@ int main() {
         const auto mixed = render_image(primaries, {2, 1, 1.5, Palette::full, 1});
         require(mixed.cells[0].color == Rgb{204, 102, 0} && mixed.cells[1].color == Rgb{0, 102, 204},
                 "fractional area sampling preserves weighted edge pixels");
+        Image stripes{30, 2, {}};
+        for (int y = 0; y < stripes.height; ++y) {
+            for (int x = 0; x < stripes.width; ++x) {
+                stripes.pixels.push_back((x / 2) % 2 ? Rgb{255, 255, 255} : Rgb{});
+            }
+        }
+        RenderOptions glitch_options{30, 12, 0.5, Palette::mono, 4};
+        glitch_options.image_glitch = true;
+        glitch_options.image_time = .0;
+        const auto glitch_start = render_image(stripes, glitch_options);
+        glitch_options.image_time = .6;
+        const auto glitch_later = render_image(stripes, glitch_options);
+        require(glitch_start != glitch_later, "image-space glitch shifts row bands over time");
+        require(glitch_later == render_image(stripes, glitch_options), "glitch snapshot is deterministic");
+        glitch_options.image_glitch = false;
+        require(render_image(stripes, glitch_options) == render_image(stripes, glitch_options),
+                "disabled image glitch remains stable");
         const auto portrait = render_image({1, 10, std::vector<Rgb>(10, {255, 255, 255})},
                                            {40, 20, 0.5, Palette::mono, 1});
         require(std::count_if(portrait.cells.begin(), portrait.cells.end(), [](Cell c) { return c.glyph != ' '; }) == 80,
                 "portrait fitting preserves aspect");
         require(portrait.cells[17].glyph == ' ' && portrait.cells[18].glyph != ' ' && portrait.cells[22].glyph == ' ',
                 "portrait centered");
+        const auto portrait_rain = matrix_rain(portrait, 5, 11, Palette::mono, .70);
+        unsigned photo_ink = 0, side_ink = 0, side_columns = 0;
+        for (int y = 0; y < portrait_rain.height; ++y) {
+            for (int x = 0; x < portrait_rain.width; x += 2) {
+                const bool ink = portrait_rain.cells[static_cast<std::size_t>(y) * portrait_rain.width + x].glyph != ' ';
+                if (x == 18 || x == 20) photo_ink += ink;
+                else { side_ink += ink; ++side_columns; }
+            }
+        }
+        const unsigned photo_columns = static_cast<unsigned>(portrait_rain.height) * 2;
+        require(side_ink * photo_columns >= photo_ink * side_columns / 2,
+                "letterbox rain follows fitted image row density");
         const auto middle = flow_down(frame, 0.4, 7), later = flow_down(frame, 0.6, 7);
         for (std::size_t i = 0; i < frame.cells.size(); ++i) {
             if (middle.cells[i] == frame.cells[i]) {
@@ -104,36 +133,56 @@ int main() {
         require(flow_down(frame, 0.9999, 7) == frame, "no final frame jump");
         const auto rain0 = matrix_rain(frame, 0, 7, Palette::green, .70);
         const auto rain1 = matrix_rain(frame, 1, 7, Palette::green, .70);
-        require(rain0 != rain1, "matrix field advances over time");
+        require(std::all_of(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) { return cell.glyph == ' '; }),
+                "matrix starts empty above the terminal");
+        require(rain0 != rain1, "matrix field advances downward from startup");
         require(rain0 == matrix_rain(frame, 0, 7, Palette::green, .70), "matrix snapshot is deterministic");
-        require(rain0 != matrix_rain(frame, 0, 8, Palette::green, .70), "matrix seed affects streams");
-        require(std::any_of(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) { return cell.glyph != ' '; }),
-                "matrix field has visible streams");
-        const auto ghost_cells = static_cast<std::size_t>(
-            std::count_if(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) { return cell.glyph != ' '; }));
+        require(rain1 != matrix_rain(frame, 1, 8, Palette::green, .70), "matrix seed affects streams");
+        require(std::any_of(rain1.cells.begin(), rain1.cells.end(), [](Cell cell) { return cell.glyph != ' '; }),
+                "matrix field has visible streams after heads enter");
+        const auto settled_rain = matrix_rain(frame, 5, 7, Palette::green, .70);
+        const auto ghost_cells = static_cast<std::size_t>(std::count_if(settled_rain.cells.begin(), settled_rain.cells.end(), [](Cell cell) {
+            return cell.glyph != ' ';
+        }));
         require(ghost_cells > 100 && ghost_cells < rain0.cells.size() / 2,
                 "persistent image uses restrained stable coverage");
-        for (const auto cell : rain0.cells) {
+        for (const auto cell : settled_rain.cells) {
             require(cell.glyph == ' ' || (cell.glyph >= '!' && cell.glyph <= 'z'),
                     "matrix matches CMatrix normal ASCII character range");
             if (cell.glyph != ' ') {
                 require(cell.color.g > cell.color.r && cell.color.g > cell.color.b, "matrix green remains green");
             }
         }
-        for (int y = 0; y < rain0.height; ++y) {
-            for (int x = 1; x < rain0.width; x += 2) {
-                require(rain0.cells[static_cast<std::size_t>(y) * rain0.width + x].glyph == ' ',
+        for (int y = 0; y < settled_rain.height; ++y) {
+            for (int x = 1; x < settled_rain.width; x += 2) {
+                require(settled_rain.cells[static_cast<std::size_t>(y) * settled_rain.width + x].glyph == ' ',
                         "matrix matches CMatrix two-column stream spacing");
             }
         }
-        const auto no_image = matrix_rain(frame, 0, 7, Palette::green, 0);
-        const auto strong_image = matrix_rain(frame, 0, 7, Palette::green, 1);
+        const auto no_image = matrix_rain(frame, 5, 7, Palette::green, 0);
+        const auto strong_image = matrix_rain(frame, 5, 7, Palette::green, 1);
         const auto green_total = [](const Frame& candidate) {
             unsigned total = 0;
             for (const auto cell : candidate.cells) total += cell.color.g;
             return total;
         };
         require(green_total(strong_image) > green_total(no_image), "image strength makes persistent image visible");
+        for (const auto palette : {Palette::green, Palette::mono, Palette::full}) {
+            for (const double time : {0.0, 1.0, 5.0, 12.0}) {
+                require(matrix_rain(frame, time, 7, palette, 0) == matrix_rain(black, time, 7, palette, 0),
+                        "zero image strength is independent of source glyphs, colors, and fitted bounds");
+                for (const auto cell : matrix_rain(frame, time, 7, palette, 0).cells) {
+                    require(cell.glyph == ' ' || cell.color != Rgb{},
+                            "zero strength emits no invisible non-space glyphs");
+                }
+            }
+        }
+        // Fixed-seed reproduction: column zero's first head exits row 24 at
+        // 3.401295238 seconds. Its still-visible tail must not vanish then.
+        const Frame single_column{1, 24, std::vector<Cell>(24)};
+        require(matrix_rain(single_column, 3.401295238 - .000001, 1, Palette::green, 0) ==
+                matrix_rain(single_column, 3.401295238 + .000001, 1, Palette::green, 0),
+                "first trail remains continuous when its head leaves the screen");
         const auto matrix_mono = matrix_rain(mono, 0.7, 7, Palette::mono, .70);
         for (const auto cell : matrix_mono.cells) {
             require(cell.color.r == cell.color.g && cell.color.g == cell.color.b, "matrix monochrome equal channels");
