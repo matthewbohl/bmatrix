@@ -109,9 +109,8 @@ int main() {
         require(rain0 != matrix_rain(frame, 0, 8, Palette::green, .70), "matrix seed affects streams");
         require(std::any_of(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) { return cell.glyph != ' '; }),
                 "matrix field has visible streams");
-        const auto ghost_cells = std::count_if(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) {
-            return cell.glyph != ' ';
-        });
+        const auto ghost_cells = static_cast<std::size_t>(
+            std::count_if(rain0.cells.begin(), rain0.cells.end(), [](Cell cell) { return cell.glyph != ' '; }));
         require(ghost_cells > 100 && ghost_cells < rain0.cells.size() / 2,
                 "persistent image uses restrained stable coverage");
         for (const auto cell : rain0.cells) {
