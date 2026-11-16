@@ -23,6 +23,12 @@ work with network access disabled after dependencies are installed. CI configure
 these checks; their presence is not proof that they have passed. Before a public
 release, replace the maintainer placeholder and verify current policy warnings.
 
+The Debian CI builder and piuparts chroot are pinned to `trixie`. Both use `main`
+from the explicit `trixie`, `trixie-updates`, and `trixie-security` repositories;
+piuparts receives the update/security entries through `--extra-repo`. Avoid the
+moving `stable` alias: the installed piuparts distribution mapping can lag behind
+the container image, causing it to resolve dependencies from the wrong release.
+
 For Homebrew, generate a development formula with
 `python3 scripts/homebrew-formula.py /tmp/bmatrix-0.1.0.tar.gz`, save its output as
 `bmatrix.rb` inside a local tap, then run `brew style`, `brew install --build-from-source`,
